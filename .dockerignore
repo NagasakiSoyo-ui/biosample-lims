@@ -1,0 +1,43 @@
+# Build output / deps — rebuilt inside the image
+node_modules
+.next
+out
+build
+coverage
+
+# Source control & editor
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.DS_Store
+.claude
+
+# Local env (secrets) — set via compose .env on the server
+.env
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.sqlite.backup
+
+# Local SQLite scratch DB
+prisma/*.db
+prisma/*.db-journal
+
+# TypeScript incremental cache
+*.tsbuildinfo
+next-env.d.ts
+
+# Docs & scratch — not needed at runtime
+README.md
+CLAUDE.md
+docs
+微信图片*.png
+*.log
+npm-debug.log*
+
+# Vercel artefact
+.vercel
