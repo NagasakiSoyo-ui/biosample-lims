@@ -1,0 +1,307 @@
+// BioSample LIMS — Prisma schema (Phase 2: full data model).
+//
+// Dev:  DATABASE_URL="file:./dev.db"     (provider = "sqlite")
+// Prod: DATABASE_URL="postgresql://..."  (provider = "postgresql")
+//
+// Convention: every write Server Action MUST insert an AuditLog row in the
+// SAME prisma.$transaction([...]) as the main mutation — see CLAUDE.md.
+//
+// onDelete strategy:
+//   - Default Restrict: core dictionary entities (SampleType, Project,
+//     SourceOrg, Donor, Location, User) are never hard-deleted; UI flips
+//     isActive instead. Restrict is the safety net.
+//   - Sample → SampleTransaction: Cascade (tx history follows the sample
+//     when an admin override truly hard-deletes a sample row).
+//   - User → AuditLog:           SetNull (audit trail outlives user lifecycle).
+//   - Location → SampleTransaction.fromLocation/toLocation: SetNull
+//     (a retired-then-deleted location should not blow away tx history).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum UserRole {
+  ADMIN // 管理员
+  USER // 普通用户
+}
+
+enum ProjectPurpose {
+  RESEARCH // 科研
+  CLINICAL_INFUSION // 临床回输
+}
+
+enum LocationLevel {
+  TANK // 液氮罐 / -80℃ 冰箱（用 notes 或 code 区分介质）
+  CANISTER // 提筒
+  BOX // 冻存盒
+  SLOT // 孔位
+}
+
+enum SampleStatus {
+  AVAILABLE // 可用
+  IN_USE // 使用中
+  QUARANTINE // 隔离中
+  RELEASED // 已放行
+  DEPLETED // 已耗尽
+  DISCARDED // 已销毁（物理销毁）
+  VOIDED // 录入作废（录错后撤销，保留痕迹但不入常规列表）
+}
+
+enum SamplePurpose {
+  RESEARCH // 科研
+  CLINICAL_INFUSION // 临床回输
+}
+
+enum TransactionType {
+  INBOUND // 入库
+  OUTBOUND // 出库
+  MOVE // 移位
+  FREEZE_THAW // 冻融
+  STATUS_CHANGE // 状态变更
+  DISCARD // 销毁
+}
+
+// ============================================================================
+// User
+// ============================================================================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         UserRole @default(USER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdSamples Sample[]            @relation("SampleCreatedBy")
+  transactions   SampleTransaction[] @relation("TransactionOperator")
+  auditLogs      AuditLog[]
+
+  @@index([isActive])
+}
+
+// ============================================================================
+// SampleType — dynamic; customFieldsSchema drives per-type extra inputs
+// ============================================================================
+
+model SampleType {
+  id          String  @id @default(cuid())
+  name        String  @unique // 中文名，e.g. "细胞" / "TIL" / "PBMC" / "血清"
+  code        String  @unique // 缩写，e.g. "CELL" / "TIL" / "PBMC" / "SER" — used in sampleCode prefix
+  icon        String? // emoji 或图标名
+  description String?
+
+  // JSON array of: { key: string; label: string; type: "text"|"number"|"date"|"select"|"boolean"; required: boolean; options?: string[] }
+  customFieldsSchema Json
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  samples Sample[]
+}
+
+// ============================================================================
+// Project — research / clinical infusion课题
+// ============================================================================
+
+model Project {
+  id          String         @id @default(cuid())
+  name        String         @unique // e.g. "GBM-TIL 研究"
+  code        String         @unique // e.g. "GBM" — used as sampleCode prefix
+  purpose     ProjectPurpose
+  description String?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  samples Sample[]
+  donors  Donor[]
+}
+
+// ============================================================================
+// SourceOrg — 来源单位
+// ============================================================================
+
+model SourceOrg {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  type          String? // e.g. 医院 / 高校 / 合作机构 / 内部
+  contactPerson String?
+  contactPhone  String?
+  address       String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  samples Sample[]
+  donors  Donor[]
+
+  @@index([isActive])
+}
+
+// ============================================================================
+// Donor — anonymized donor / patient
+// ============================================================================
+
+model Donor {
+  id              String    @id @default(cuid())
+  code            String    @unique // 脱敏 ID，e.g. "GBM-P001"
+  gender          String? // "M" / "F" / "Unknown"
+  ageAtCollection Int?
+  diagnosis       String? // 诊断
+  collectionDate  DateTime? // 真实采血 / 取材时点（非录入时间）
+  sourceOrgId     String?
+  projectId       String?
+  notes           String?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sourceOrg SourceOrg? @relation(fields: [sourceOrgId], references: [id], onDelete: Restrict)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  samples   Sample[]
+
+  @@index([isActive])
+}
+
+// ============================================================================
+// Location — self-referencing 4-level tree
+//   TANK (罐 / -80℃ 冰箱) → CANISTER (提筒) → BOX (冻存盒) → SLOT (孔位)
+// Parent/child level legality is enforced in the application layer.
+// ============================================================================
+
+model Location {
+  id        String        @id @default(cuid())
+  name      String // e.g. "液氮罐A" / "提筒3" / "盒15" / "A1"
+  code      String?
+  level     LocationLevel
+  parentId  String?
+  capacity  Int? // 该层级最大容纳数（盒可设 100 = 10×10）
+  gridRows  Int? // BOX 专用
+  gridCols  Int? // BOX 专用
+  position  Int? // SLOT 专用：父 BOX 中的 0-based 线性下标（row*cols + col）
+  notes     String?
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  parent   Location?           @relation("LocationTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Location[]          @relation("LocationTree")
+  samples  Sample[]
+  txFrom   SampleTransaction[] @relation("TxFromLocation")
+  txTo     SampleTransaction[] @relation("TxToLocation")
+
+  @@unique([parentId, position])
+  @@index([parentId])
+  @@index([level])
+}
+
+// ============================================================================
+// Sample — core entity. sampleCode is unique within a project.
+// ============================================================================
+
+model Sample {
+  id              String        @id @default(cuid())
+  sampleCode      String // e.g. "GBM-TIL-250509-01" — unique within projectId
+  typeId          String
+  projectId       String
+  sourceOrgId     String?
+  donorId         String?
+  parentSampleId  String?
+  locationId      String?
+  status          SampleStatus  @default(AVAILABLE)
+  purpose         SamplePurpose
+  volume          Float? // 体积 / 数量
+  volumeUnit      String? // "mL" / "vial" / "mg" / "cells"
+  collectedAt     DateTime? // 采集日期
+  frozenAt        DateTime? // 冻存日期
+  expireAt        DateTime? // 有效期
+  freezeThawCount Int           @default(0)
+  customFields    Json? // values keyed by SampleType.customFieldsSchema[].key
+  notes           String?
+  createdById     String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  type         SampleType          @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  project      Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  sourceOrg    SourceOrg?          @relation(fields: [sourceOrgId], references: [id], onDelete: Restrict)
+  donor        Donor?              @relation(fields: [donorId], references: [id], onDelete: Restrict)
+  parent       Sample?             @relation("SampleLineage", fields: [parentSampleId], references: [id], onDelete: Restrict)
+  children     Sample[]            @relation("SampleLineage")
+  location     Location?           @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  createdBy    User                @relation("SampleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  transactions SampleTransaction[]
+
+  @@unique([projectId, sampleCode])
+  @@index([projectId])
+  @@index([typeId])
+  @@index([status])
+  @@index([locationId])
+  @@index([parentSampleId])
+  @@index([sampleCode])
+}
+
+// ============================================================================
+// SampleTransaction — in/out/move/freeze-thaw/status-change/discard log
+// ============================================================================
+
+model SampleTransaction {
+  id             String          @id @default(cuid())
+  sampleId       String
+  type           TransactionType
+  fromLocationId String?
+  toLocationId   String?
+  quantityChange Float? // 出库消耗量
+  previousStatus SampleStatus?
+  newStatus      SampleStatus?
+  reason         String? // e.g. "实验消耗" / "临床回输" / "质检" / "销毁"
+  operatorId     String
+  operatorNote   String?
+  createdAt      DateTime        @default(now())
+
+  sample       Sample    @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  fromLocation Location? @relation("TxFromLocation", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  toLocation   Location? @relation("TxToLocation", fields: [toLocationId], references: [id], onDelete: SetNull)
+  operator     User      @relation("TransactionOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+
+  @@index([sampleId])
+  @@index([createdAt])
+  @@index([type])
+}
+
+// ============================================================================
+// AuditLog — global write-action audit trail
+// ============================================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String // e.g. "CREATE_SAMPLE" / "UPDATE_LOCATION" / "DISABLE_PROJECT"
+  entityType String // e.g. "Sample" / "Location" / "Project"
+  entityId   String?
+  changes    Json? // { before, after }
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
