@@ -27,7 +27,6 @@ import {
   createUserAction,
   updateUserAction,
   type CreateUserInput,
-  type UpdateUserInput,
 } from "@/server/actions/users";
 
 export type UserForEdit = {
@@ -37,19 +36,14 @@ export type UserForEdit = {
   role: "ADMIN" | "USER";
 };
 
-const createSchema = z.object({
+const formSchema = z.object({
   email: z.string().email("请输入有效的邮箱"),
-  name: z.string().min(1, "姓名不能为空"),
+  name: z.string().min(1, "姓名不能为空").max(50, "姓名过长"),
   role: z.enum(["ADMIN", "USER"]),
-  password: z.string().min(8, "密码至少 8 位"),
+  // Required field type-wise; create-mode length is enforced in onSubmit.
+  password: z.string(),
 });
-type CreateValues = z.infer<typeof createSchema>;
-
-const editSchema = z.object({
-  name: z.string().min(1, "姓名不能为空"),
-  role: z.enum(["ADMIN", "USER"]),
-});
-type EditValues = z.infer<typeof editSchema>;
+type FormValues = z.infer<typeof formSchema>;
 
 export function UserFormDialog({
   open,
@@ -62,41 +56,54 @@ export function UserFormDialog({
 }) {
   const isEdit = !!editing;
 
-  const createForm = useForm<CreateValues>({
-    resolver: zodResolver(createSchema),
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
     defaultValues: { email: "", name: "", role: "USER", password: "" },
-  });
-  const editForm = useForm<EditValues>({
-    resolver: zodResolver(editSchema),
-    defaultValues: { name: "", role: "USER" },
   });
 
   React.useEffect(() => {
     if (!open) return;
     if (editing) {
-      editForm.reset({ name: editing.name, role: editing.role });
+      form.reset({
+        email: editing.email,
+        name: editing.name,
+        role: editing.role,
+        password: "",
+      });
     } else {
-      createForm.reset({ email: "", name: "", role: "USER", password: "" });
+      form.reset({ email: "", name: "", role: "USER", password: "" });
     }
-  }, [open, editing, createForm, editForm]);
+  }, [open, editing, form]);
 
-  async function onCreate(values: CreateValues) {
-    const input: CreateUserInput = values;
+  async function onSubmit(values: FormValues) {
+    if (isEdit && editing) {
+      const result = await updateUserAction(editing.id, {
+        name: values.name,
+        role: values.role,
+      });
+      if (result.success) {
+        toast.success("已保存");
+        onOpenChange(false);
+      } else {
+        toast.error(result.error);
+      }
+      return;
+    }
+
+    // Create mode — password is required and must be ≥ 8 chars.
+    if (!values.password || values.password.length < 8) {
+      form.setError("password", { message: "密码至少 8 位" });
+      return;
+    }
+    const input: CreateUserInput = {
+      email: values.email,
+      name: values.name,
+      role: values.role,
+      password: values.password,
+    };
     const result = await createUserAction(input);
     if (result.success) {
       toast.success("已创建");
-      onOpenChange(false);
-    } else {
-      toast.error(result.error);
-    }
-  }
-
-  async function onEdit(values: EditValues) {
-    if (!editing) return;
-    const input: UpdateUserInput = values;
-    const result = await updateUserAction(editing.id, input);
-    if (result.success) {
-      toast.success("已保存");
       onOpenChange(false);
     } else {
       toast.error(result.error);
@@ -115,127 +122,76 @@ export function UserFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {isEdit ? (
-          <Form {...editForm}>
-            <form
-              id="user-edit-form"
-              onSubmit={editForm.handleSubmit(onEdit)}
-              className="space-y-4"
-            >
-              <div className="space-y-1.5">
-                <FormLabel>邮箱</FormLabel>
-                <Input value={editing!.email} disabled />
-              </div>
-              <FormField
-                control={editForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>姓名 *</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={editForm.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>角色 *</FormLabel>
-                    <div className="flex gap-4 pt-1">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          checked={field.value === "ADMIN"}
-                          onChange={() => field.onChange("ADMIN")}
-                        />
-                        管理员
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          checked={field.value === "USER"}
-                          onChange={() => field.onChange("USER")}
-                        />
-                        普通用户
-                      </label>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </form>
-          </Form>
-        ) : (
-          <Form {...createForm}>
-            <form
-              id="user-create-form"
-              onSubmit={createForm.handleSubmit(onCreate)}
-              className="space-y-4"
-            >
-              <FormField
-                control={createForm.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>邮箱 *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="email"
-                        placeholder="user@example.com"
-                        {...field}
+        <Form {...form}>
+          <form
+            id="user-form"
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="space-y-4"
+          >
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>邮箱 *</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="email"
+                      placeholder="user@example.com"
+                      disabled={isEdit}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>姓名 *</FormLabel>
+                  <FormControl>
+                    <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>角色 *</FormLabel>
+                  <div className="flex gap-4 pt-1">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="role"
+                        checked={field.value === "ADMIN"}
+                        onChange={() => field.onChange("ADMIN")}
                       />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                      管理员
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="role"
+                        checked={field.value === "USER"}
+                        onChange={() => field.onChange("USER")}
+                      />
+                      普通用户
+                    </label>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {!isEdit && (
               <FormField
-                control={createForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>姓名 *</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={createForm.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>角色 *</FormLabel>
-                    <div className="flex gap-4 pt-1">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          checked={field.value === "ADMIN"}
-                          onChange={() => field.onChange("ADMIN")}
-                        />
-                        管理员
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="radio"
-                          checked={field.value === "USER"}
-                          onChange={() => field.onChange("USER")}
-                        />
-                        普通用户
-                      </label>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={createForm.control}
+                control={form.control}
                 name="password"
                 render={({ field }) => (
                   <FormItem>
@@ -247,9 +203,9 @@ export function UserFormDialog({
                   </FormItem>
                 )}
               />
-            </form>
-          </Form>
-        )}
+            )}
+          </form>
+        </Form>
 
         <DialogFooter>
           <Button
@@ -261,18 +217,10 @@ export function UserFormDialog({
           </Button>
           <Button
             type="button"
-            onClick={
-              isEdit
-                ? editForm.handleSubmit(onEdit)
-                : createForm.handleSubmit(onCreate)
-            }
-            disabled={
-              isEdit ? editForm.formState.isSubmitting : createForm.formState.isSubmitting
-            }
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={form.formState.isSubmitting}
           >
-            {(isEdit ? editForm.formState.isSubmitting : createForm.formState.isSubmitting)
-              ? "保存中..."
-              : "保存"}
+            {form.formState.isSubmitting ? "保存中..." : "保存"}
           </Button>
         </DialogFooter>
       </DialogContent>
