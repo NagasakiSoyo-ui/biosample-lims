@@ -118,7 +118,7 @@ export function UserFormDialog({
         {isEdit ? (
           <Form {...editForm}>
             <form
-              id="user-form"
+              id="user-edit-form"
               onSubmit={editForm.handleSubmit(onEdit)}
               className="space-y-4"
             >
@@ -172,7 +172,7 @@ export function UserFormDialog({
         ) : (
           <Form {...createForm}>
             <form
-              id="user-form"
+              id="user-create-form"
               onSubmit={createForm.handleSubmit(onCreate)}
               className="space-y-4"
             >
@@ -260,8 +260,12 @@ export function UserFormDialog({
             取消
           </Button>
           <Button
-            type="submit"
-            form="user-form"
+            type="button"
+            onClick={
+              isEdit
+                ? editForm.handleSubmit(onEdit)
+                : createForm.handleSubmit(onCreate)
+            }
             disabled={
               isEdit ? editForm.formState.isSubmitting : createForm.formState.isSubmitting
             }
