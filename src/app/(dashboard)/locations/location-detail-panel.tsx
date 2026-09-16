@@ -22,7 +22,6 @@ import { Separator } from "@/components/ui/separator";
 import {
   LEVEL_ICON,
   LEVEL_LABEL,
-  cellLabel,
   childLevelOf,
 } from "@/server/services/locations";
 import { BoxGrid } from "./box-grid";
@@ -45,22 +44,24 @@ function DetailRow({
 
 export function LocationDetailPanel({
   node,
-  children,
+  childNodes,
   onEdit,
   onCreateChild,
   onCreateSlotAt,
   onToggleActive,
   onDelete,
   onSelectChild,
+  canManage,
 }: {
   node: LocationNode;
-  children: LocationNode[];
+  childNodes: LocationNode[];
   onEdit: () => void;
   onCreateChild: () => void;
   onCreateSlotAt: (position: number) => void;
   onToggleActive: () => void;
   onDelete: () => void;
   onSelectChild: (id: string) => void;
+  canManage: boolean;
 }) {
   const childLevel = childLevelOf(node.level);
   const isBox = node.level === "BOX";
@@ -81,10 +82,10 @@ export function LocationDetailPanel({
               {node.code && ` · ${node.code}`}
               {isSlot &&
                 node.position != null &&
-                ` · 位置 ${cellLabelFromParent(node, children)}`}
+                ` · 位置 ${cellLabelFromParent(node)}`}
             </CardDescription>
           </div>
-          <div className="flex flex-wrap gap-1">
+          {canManage && <div className="flex flex-wrap gap-1">
             <Button variant="outline" size="sm" onClick={onEdit}>
               <Pencil className="mr-1 h-3.5 w-3.5" />
               编辑
@@ -118,7 +119,7 @@ export function LocationDetailPanel({
               <Trash2 className="mr-1 h-3.5 w-3.5" />
               删除
             </Button>
-          </div>
+          </div>}
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -147,6 +148,59 @@ export function LocationDetailPanel({
           <DetailRow label="备注" value={node.notes} />
         </div>
 
+        {isSlot && (
+          <>
+            <Separator />
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium">样本详细信息</h3>
+                <span className="text-xs text-muted-foreground">
+                  共 {node.samples.length} 个
+                </span>
+              </div>
+              {node.samples.length === 0 ? (
+                <p className="rounded border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  该孔位暂无样本
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {node.samples.map((sample) => (
+                    <div key={sample.id} className="rounded-md border p-4">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <a
+                          href={`/samples/${sample.id}`}
+                          className="font-mono text-sm font-medium text-primary hover:underline"
+                        >
+                          {sample.sampleCode}
+                        </a>
+                        <Badge>{sample.statusLabel}</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                        <DetailRow label="样本类型" value={sample.typeName} />
+                        <DetailRow label="患者姓名" value={sample.patientName} />
+                        <DetailRow label="患者编号" value={sample.patientCode} />
+                        <DetailRow
+                          label="体积 / 数量"
+                          value={
+                            sample.volume == null
+                              ? null
+                              : `${sample.volume} ${sample.volumeUnit ?? ""}`
+                          }
+                        />
+                        <DetailRow label="采集日期" value={sample.collectedAt} />
+                        <DetailRow label="来源单位" value={sample.sourceOrgName} />
+                      </div>
+                      <div className="mt-2">
+                        <DetailRow label="样本备注" value={sample.notes} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {!isSlot && !isBox && (
           <>
             <Separator />
@@ -156,10 +210,10 @@ export function LocationDetailPanel({
                   子节点{childLevel ? `（${LEVEL_LABEL[childLevel]}）` : ""}
                 </h3>
                 <span className="text-xs text-muted-foreground">
-                  共 {children.length} 个
+                  共 {childNodes.length} 个
                 </span>
               </div>
-              {children.length === 0 ? (
+              {childNodes.length === 0 ? (
                 <p className="rounded border border-dashed p-4 text-center text-sm text-muted-foreground">
                   尚未添加子节点
                 </p>
@@ -176,7 +230,7 @@ export function LocationDetailPanel({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {children.map((c) => (
+                      {childNodes.map((c) => (
                         <TableRow
                           key={c.id}
                           className="cursor-pointer hover:bg-accent/50"
@@ -225,8 +279,8 @@ export function LocationDetailPanel({
               <BoxGrid
                 rows={node.gridRows ?? 10}
                 cols={node.gridCols ?? 10}
-                slots={children}
-                onCreateAt={node.isActive ? onCreateSlotAt : undefined}
+                slots={childNodes}
+                onCreateAt={canManage && node.isActive ? onCreateSlotAt : undefined}
                 onSelectSlot={onSelectChild}
               />
             </div>
@@ -242,7 +296,6 @@ export function LocationDetailPanel({
 // (the parent's children) and fall back to the SLOT name.
 function cellLabelFromParent(
   slot: LocationNode,
-  _siblingsHint: LocationNode[],
 ): string {
   // We don't actually have the parent BOX's gridCols here; the SLOT's own
   // name has historically been the cell label (set as default when created

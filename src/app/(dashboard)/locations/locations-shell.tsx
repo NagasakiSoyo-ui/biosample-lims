@@ -38,6 +38,19 @@ export type LocationNode = {
   isActive: boolean;
   sampleCount: number;
   childCount: number;
+  samples: Array<{
+    id: string;
+    sampleCode: string;
+    typeName: string;
+    patientName: string | null;
+    patientCode: string | null;
+    volume: number | null;
+    volumeUnit: string | null;
+    statusLabel: string;
+    collectedAt: string | null;
+    sourceOrgName: string | null;
+    notes: string | null;
+  }>;
 };
 
 export type TreeNode = LocationNode & { children: TreeNode[] };
@@ -58,7 +71,13 @@ function buildTree(items: LocationNode[]): TreeNode[] {
   return attach(null);
 }
 
-export function LocationsShell({ items }: { items: LocationNode[] }) {
+export function LocationsShell({
+  items,
+  canManage,
+}: {
+  items: LocationNode[];
+  canManage: boolean;
+}) {
   const [selectedId, setSelectedId] = React.useState<string | null>(
     items[0]?.id ?? null,
   );
@@ -151,10 +170,12 @@ export function LocationsShell({ items }: { items: LocationNode[] }) {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">位置树</CardTitle>
-            <Button size="sm" onClick={openCreateTopLevel}>
-              <Plus className="mr-1 h-4 w-4" />
-              新增罐/冰箱
-            </Button>
+            {canManage && (
+              <Button size="sm" onClick={openCreateTopLevel}>
+                <Plus className="mr-1 h-4 w-4" />
+                新增罐/冰箱
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="overflow-auto">
@@ -176,13 +197,14 @@ export function LocationsShell({ items }: { items: LocationNode[] }) {
         {selected ? (
           <LocationDetailPanel
             node={selected}
-            children={children}
+            childNodes={children}
             onEdit={openEdit}
             onCreateChild={openCreateChild}
             onCreateSlotAt={openCreateSlotAt}
             onToggleActive={() => setConfirm({ kind: "toggle", node: selected })}
             onDelete={() => setConfirm({ kind: "delete", node: selected })}
             onSelectChild={setSelectedId}
+            canManage={canManage}
           />
         ) : (
           <Card>

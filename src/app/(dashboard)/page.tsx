@@ -30,6 +30,8 @@ import {
   ProjectMiniBar,
 } from "./dashboard-charts";
 import type { SampleStatus } from "@prisma/client";
+import { redirect } from "next/navigation";
+import { getActor } from "@/server/services/auth-guard";
 
 export const metadata = { title: "仪表盘 · BioSample LIMS" };
 
@@ -54,11 +56,13 @@ const STATUS_ORDER: SampleStatus[] = [
 ];
 
 export default async function DashboardPage() {
+  const actor = await getActor();
+  if (!actor) redirect("/login");
   const [stats, projects, typeDist, audits] = await Promise.all([
-    getDashboardStats(),
-    getProjectStats(),
-    getTypeDistribution(),
-    getRecentAudits(20),
+    getDashboardStats(actor),
+    getProjectStats(actor),
+    getTypeDistribution(actor),
+    getRecentAudits(actor, 20),
   ]);
 
   const expiringSeverity =
@@ -283,7 +287,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* === Recent activity timeline === */}
-      <Card>
+      {actor.role === "ADMIN" && <Card>
         <CardHeader className="flex-row items-center justify-between gap-2">
           <CardTitle className="text-base">最近操作</CardTitle>
           <Link
@@ -338,7 +342,7 @@ export default async function DashboardPage() {
             </ol>
           )}
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 }

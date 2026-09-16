@@ -34,6 +34,7 @@ export type UserForEdit = {
   email: string;
   name: string;
   role: "ADMIN" | "USER";
+  projectIds: string[];
 };
 
 const formSchema = z.object({
@@ -42,6 +43,7 @@ const formSchema = z.object({
   role: z.enum(["ADMIN", "USER"]),
   // Required field type-wise; create-mode length is enforced in onSubmit.
   password: z.string(),
+  projectIds: z.array(z.string()),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -49,16 +51,24 @@ export function UserFormDialog({
   open,
   onOpenChange,
   editing,
+  projects,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   editing: UserForEdit | null;
+  projects: Array<{ id: string; code: string; name: string }>;
 }) {
   const isEdit = !!editing;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { email: "", name: "", role: "USER", password: "" },
+    defaultValues: {
+      email: "",
+      name: "",
+      role: "USER",
+      password: "",
+      projectIds: [],
+    },
   });
 
   React.useEffect(() => {
@@ -69,9 +79,16 @@ export function UserFormDialog({
         name: editing.name,
         role: editing.role,
         password: "",
+        projectIds: editing.role === "ADMIN" ? [] : editing.projectIds,
       });
     } else {
-      form.reset({ email: "", name: "", role: "USER", password: "" });
+      form.reset({
+        email: "",
+        name: "",
+        role: "USER",
+        password: "",
+        projectIds: [],
+      });
     }
   }, [open, editing, form]);
 
@@ -80,6 +97,7 @@ export function UserFormDialog({
       const result = await updateUserAction(editing.id, {
         name: values.name,
         role: values.role,
+        projectIds: values.role === "USER" ? values.projectIds : [],
       });
       if (result.success) {
         toast.success("已保存");
@@ -100,6 +118,7 @@ export function UserFormDialog({
       name: values.name,
       role: values.role,
       password: values.password,
+      projectIds: values.role === "USER" ? values.projectIds : [],
     };
     const result = await createUserAction(input);
     if (result.success) {
@@ -146,6 +165,55 @@ export function UserFormDialog({
                 </FormItem>
               )}
             />
+            {form.watch("role") === "USER" && (
+              <FormField
+                control={form.control}
+                name="projectIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>可访问项目</FormLabel>
+                    <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
+                      {projects.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          暂无启用项目
+                        </p>
+                      ) : (
+                        projects.map((project) => {
+                          const checked = field.value.includes(project.id);
+                          return (
+                            <label
+                              key={project.id}
+                              className="flex items-center gap-2 text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(event) =>
+                                  field.onChange(
+                                    event.target.checked
+                                      ? [...field.value, project.id]
+                                      : field.value.filter(
+                                          (id) => id !== project.id,
+                                        ),
+                                  )
+                                }
+                              />
+                              <span>
+                                {project.code} · {project.name}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      未勾选项目时，该用户登录后看不到任何项目数据。
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <FormField
               control={form.control}
               name="name"

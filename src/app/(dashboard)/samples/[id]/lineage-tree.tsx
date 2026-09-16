@@ -94,16 +94,16 @@ export function LineageTree({
   root: LineageNode | null;
   currentId: string;
 }) {
-  if (!root) {
+  const layout = React.useMemo(() => (root ? buildLayout(root) : null), [root]);
+  const nodes = React.useMemo(() => (root ? flattenNodes(root) : []), [root]);
+
+  if (!root || !layout) {
     return (
       <p className="rounded border border-dashed p-6 text-center text-sm text-muted-foreground">
         无谱系数据
       </p>
     );
   }
-
-  const layout = React.useMemo(() => buildLayout(root), [root]);
-  const nodes = React.useMemo(() => flattenNodes(root), [root]);
 
   return (
     <div className="space-y-3">

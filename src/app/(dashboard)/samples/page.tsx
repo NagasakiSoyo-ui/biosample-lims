@@ -7,6 +7,13 @@ import {
   type SampleRow,
   type UrlFilter,
 } from "./samples-list-client";
+import { redirect } from "next/navigation";
+import {
+  canAccessProject,
+  getActor,
+  projectWhere,
+  sampleWhere,
+} from "@/server/services/auth-guard";
 
 export const metadata = { title: "样本 · BioSample LIMS" };
 
@@ -32,6 +39,8 @@ export default async function SamplesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const actor = await getActor();
+  if (!actor) redirect("/login");
   const sp = await searchParams;
   const projectId = typeof sp.projectId === "string" ? sp.projectId : null;
   const expireBefore =
@@ -44,8 +53,12 @@ export default async function SamplesPage({
 
   // Build server-side WHERE clause from URL params (these come from dashboard
   // KPI links; the in-page filter form layers on top, client-side).
-  const where: Prisma.SampleWhereInput = {};
-  if (projectId) where.projectId = projectId;
+  const where: Prisma.SampleWhereInput = sampleWhere(actor);
+  if (projectId) {
+    where.projectId = canAccessProject(actor, projectId)
+      ? projectId
+      : { in: [] };
+  }
   if (parentSampleId) where.parentSampleId = parentSampleId;
   if (expireBefore) {
     const cutoff = new Date(expireBefore);
@@ -68,7 +81,7 @@ export default async function SamplesPage({
       include: {
         type: { select: { name: true, icon: true } },
         project: { select: { code: true, name: true } },
-        donor: { select: { code: true } },
+        donor: { select: { name: true, code: true } },
         location: {
           select: {
             id: true,
@@ -89,7 +102,7 @@ export default async function SamplesPage({
       },
     }),
     prisma.project.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...projectWhere(actor) },
       select: { id: true, code: true, name: true },
       orderBy: { code: "asc" },
     }),
@@ -121,7 +134,7 @@ export default async function SamplesPage({
     typeIcon: s.type.icon,
     projectCode: s.project.code,
     projectName: s.project.name,
-    donorCode: s.donor?.code ?? null,
+    donorCode: s.donor?.name ?? s.donor?.code ?? null,
     status: s.status,
     purpose: s.purpose,
     locationId: s.locationId,

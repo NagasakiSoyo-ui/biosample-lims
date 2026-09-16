@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { AuditLogsClient, type AuditRow } from "./audit-logs-client";
+import { getActor } from "@/server/services/auth-guard";
 
 export const metadata = { title: "操作日志 · BioSample LIMS" };
 
 export default async function AuditLogsPage() {
-  const session = await auth();
-  if (session?.user?.role !== "ADMIN") {
+  const actor = await getActor();
+  if (actor?.role !== "ADMIN") {
     redirect("/");
   }
 

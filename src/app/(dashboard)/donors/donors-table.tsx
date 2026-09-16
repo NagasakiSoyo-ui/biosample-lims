@@ -21,6 +21,7 @@ import { DonorFormDialog, type DonorForEdit } from "./donor-form-dialog";
 
 export type DonorRow = {
   id: string;
+  name: string;
   code: string;
   gender: string | null;
   ageAtCollection: number | null;
@@ -74,6 +75,7 @@ export function DonorsTable({
   function openEdit(row: DonorRow) {
     setEditing({
       id: row.id,
+      name: row.name,
       code: row.code,
       gender: row.gender,
       ageAtCollection: row.ageAtCollection,
@@ -100,9 +102,10 @@ export function DonorsTable({
   }
 
   const columns: ColumnDef<DonorRow, unknown>[] = [
+    { accessorKey: "name", header: "姓名" },
     {
       accessorKey: "code",
-      header: "脱敏 ID",
+      header: "患者编号",
       cell: ({ row }) => (
         <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
           {row.original.code}
@@ -198,7 +201,7 @@ export function DonorsTable({
       <DataTable
         data={filtered}
         columns={columns}
-        searchPlaceholder="搜索脱敏 ID 或诊断..."
+        searchPlaceholder="搜索姓名、患者编号或诊断..."
         toolbarSlot={
           <>
             <Select

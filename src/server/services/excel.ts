@@ -116,7 +116,7 @@ export async function buildTemplateBuffer(args: {
       "研究 / 临床回输 / RESEARCH / CLINICAL_INFUSION",
       "样本用途（下拉）",
     ],
-    ["donorCode", "否", "字符串", "供者脱敏 ID（必须已存在）"],
+    ["donorCode", "否", "字符串", "患者编号（必须已存在；供者页面显示真实姓名）"],
     ["sourceOrgName", "否", "字符串", "来源单位名称（必须已存在）"],
     ["parentSampleCode", "否", "字符串", "母样本编号（必须已存在）"],
     ["volume", "否", "数字", "体积或数量"],
@@ -573,4 +573,3 @@ export function validateRows(
 
   return out;
 }
-

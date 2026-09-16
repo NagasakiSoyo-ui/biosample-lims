@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getActor } from "@/server/services/auth-guard";
+import {
+  canAccessProject,
+  donorWhere,
+  getActor,
+  projectWhere,
+  sampleWhere,
+  type Actor,
+} from "@/server/services/auth-guard";
 import { buildAuditData } from "@/server/services/audit";
 import { getOrCreateSlot } from "@/server/services/locations";
 import {
@@ -21,10 +28,11 @@ import type { ActionResult } from "@/types/action";
 // Build the validation context once, used by both parse + confirm flows.
 // ---------------------------------------------------------------------------
 
-async function buildContext(): Promise<ImportContext> {
+async function buildContext(actor: Actor): Promise<ImportContext> {
   const [projects, types, donors, sourceOrgs, parents, allLocations, occSamples] =
     await Promise.all([
       prisma.project.findMany({
+        where: projectWhere(actor),
         select: { id: true, code: true, isActive: true },
       }),
       prisma.sampleType.findMany({
@@ -35,9 +43,13 @@ async function buildContext(): Promise<ImportContext> {
           customFieldsSchema: true,
         },
       }),
-      prisma.donor.findMany({ select: { id: true, code: true } }),
+      prisma.donor.findMany({
+        where: donorWhere(actor),
+        select: { id: true, code: true },
+      }),
       prisma.sourceOrg.findMany({ select: { id: true, name: true } }),
       prisma.sample.findMany({
+        where: sampleWhere(actor),
         select: { id: true, sampleCode: true, projectId: true },
       }),
       prisma.location.findMany({
@@ -157,6 +169,7 @@ export async function downloadTemplateAction(): Promise<
 
   const [projects, types] = await Promise.all([
     prisma.project.findMany({
+      where: projectWhere(actor),
       select: { code: true, name: true, isActive: true },
       orderBy: { code: "asc" },
     }),
@@ -209,7 +222,7 @@ export async function parseImportAction(
     return { success: false, error: "样本数据 sheet 为空" };
   }
 
-  const ctx = await buildContext();
+  const ctx = await buildContext(actor);
   const rows = validateRows(raws, ctx);
 
   return { success: true, data: { rows } };
@@ -226,7 +239,10 @@ export async function confirmImportAction(
   if (!actor) return { success: false, error: "未登录" };
 
   const importable = rows.filter(
-    (r) => r.status !== "ERROR" && r.resolved !== null,
+    (r) =>
+      r.status !== "ERROR" &&
+      r.resolved !== null &&
+      canAccessProject(actor, r.resolved.projectId),
   );
   if (importable.length === 0) {
     return { success: false, error: "没有可导入的行" };
@@ -247,6 +263,27 @@ export async function confirmImportAction(
           const idsThisBatch: string[] = [];
           for (const row of chunk) {
             const r = row.resolved as ImportResolved;
+            if (!canAccessProject(actor, r.projectId)) {
+              throw new Error("FORBIDDEN_PROJECT");
+            }
+            if (r.donorId) {
+              const donor = await tx.donor.findUnique({
+                where: { id: r.donorId },
+                select: { projectId: true },
+              });
+              if (!donor || donor.projectId !== r.projectId) {
+                throw new Error("DONOR_PROJECT_MISMATCH");
+              }
+            }
+            if (r.parentSampleId) {
+              const parent = await tx.sample.findUnique({
+                where: { id: r.parentSampleId },
+                select: { projectId: true },
+              });
+              if (!parent || parent.projectId !== r.projectId) {
+                throw new Error("PARENT_PROJECT_MISMATCH");
+              }
+            }
             let locationId = r.locationId;
             if (!locationId && r.pendingSlot) {
               const slot = await getOrCreateSlot(tx, {

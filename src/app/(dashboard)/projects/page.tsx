@@ -1,11 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { ProjectsTable, type ProjectRow } from "./projects-table";
+import { redirect } from "next/navigation";
+import { getActor, projectWhere } from "@/server/services/auth-guard";
 
 export const metadata = { title: "项目 · BioSample LIMS" };
 
 export default async function ProjectsPage() {
+  const actor = await getActor();
+  if (!actor) redirect("/login");
   const rows = await prisma.project.findMany({
+    where: projectWhere(actor),
     orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
     include: { _count: { select: { samples: true } } },
   });
@@ -28,7 +33,7 @@ export default async function ProjectsPage() {
         title="项目"
         description="管理研究和临床回输项目；项目缩写用作样本编号前缀。"
       />
-      <ProjectsTable data={data} />
+      <ProjectsTable data={data} canManage={actor.role === "ADMIN"} />
     </div>
   );
 }

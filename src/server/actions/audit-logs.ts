@@ -1,7 +1,6 @@
 "use server";
 
 import ExcelJS from "exceljs";
-import { prisma } from "@/lib/prisma";
 import { getActor } from "@/server/services/auth-guard";
 import {
   actionLabel,

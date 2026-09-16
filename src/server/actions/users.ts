@@ -43,6 +43,11 @@ const createInput = z.object({
   name: z.string().min(1, "姓名不能为空").max(50, "姓名过长"),
   role: z.enum(["ADMIN", "USER"]),
   password: z.string().min(8, "密码至少 8 位").max(128, "密码过长"),
+  projectIds: z
+    .array(z.string().min(1))
+    .max(100, "可访问项目过多")
+    .transform((ids) => [...new Set(ids)])
+    .default([]),
 });
 
 export type CreateUserInput = z.infer<typeof createInput>;
@@ -69,6 +74,14 @@ export async function createUserAction(
           name: parsed.data.name,
           role: parsed.data.role,
           passwordHash,
+          projectAccess:
+            parsed.data.role === "USER"
+              ? {
+                  create: parsed.data.projectIds.map((projectId) => ({
+                    projectId,
+                  })),
+                }
+              : undefined,
         },
       });
       await tx.auditLog.create({
@@ -82,6 +95,8 @@ export async function createUserAction(
               email: created.email,
               name: created.name,
               role: created.role,
+              projectIds:
+                parsed.data.role === "USER" ? parsed.data.projectIds : [],
             },
           },
         }),
@@ -108,6 +123,11 @@ export async function createUserAction(
 const updateInput = z.object({
   name: z.string().min(1, "姓名不能为空").max(50, "姓名过长"),
   role: z.enum(["ADMIN", "USER"]),
+  projectIds: z
+    .array(z.string().min(1))
+    .max(100, "可访问项目过多")
+    .transform((ids) => [...new Set(ids)])
+    .default([]),
 });
 
 export type UpdateUserInput = z.infer<typeof updateInput>;
@@ -129,7 +149,10 @@ export async function updateUserAction(
 
   try {
     await prisma.$transaction(async (tx) => {
-      const before = await tx.user.findUnique({ where: { id } });
+      const before = await tx.user.findUnique({
+        where: { id },
+        include: { projectAccess: { select: { projectId: true } } },
+      });
       if (!before) throw new Error("NOT_FOUND");
       // Invariant: never allow demoting the last active ADMIN.
       if (
@@ -142,7 +165,20 @@ export async function updateUserAction(
       }
       const after = await tx.user.update({
         where: { id },
-        data: { name: parsed.data.name, role: parsed.data.role },
+        data: {
+          name: parsed.data.name,
+          role: parsed.data.role,
+          projectAccess: {
+            deleteMany: {},
+            ...(parsed.data.role === "USER"
+              ? {
+                  create: parsed.data.projectIds.map((projectId) => ({
+                    projectId,
+                  })),
+                }
+              : {}),
+          },
+        },
       });
       await tx.auditLog.create({
         data: buildAuditData({
@@ -151,8 +187,17 @@ export async function updateUserAction(
           entityType: "User",
           entityId: id,
           changes: {
-            before: { name: before.name, role: before.role },
-            after: { name: after.name, role: after.role },
+            before: {
+              name: before.name,
+              role: before.role,
+              projectIds: before.projectAccess.map((grant) => grant.projectId),
+            },
+            after: {
+              name: after.name,
+              role: after.role,
+              projectIds:
+                parsed.data.role === "USER" ? parsed.data.projectIds : [],
+            },
           },
         }),
       });

@@ -1,12 +1,21 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { DonorsTable, type DonorRow } from "./donors-table";
+import { redirect } from "next/navigation";
+import {
+  donorWhere,
+  getActor,
+  projectWhere,
+} from "@/server/services/auth-guard";
 
 export const metadata = { title: "供者 · BioSample LIMS" };
 
 export default async function DonorsPage() {
+  const actor = await getActor();
+  if (!actor) redirect("/login");
   const [rows, projects, sourceOrgs] = await Promise.all([
     prisma.donor.findMany({
+      where: donorWhere(actor),
       orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
       include: {
         project: { select: { id: true, name: true } },
@@ -15,7 +24,7 @@ export default async function DonorsPage() {
       },
     }),
     prisma.project.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...projectWhere(actor) },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -28,6 +37,7 @@ export default async function DonorsPage() {
 
   const data: DonorRow[] = rows.map((r) => ({
     id: r.id,
+    name: r.name,
     code: r.code,
     gender: r.gender,
     ageAtCollection: r.ageAtCollection,
@@ -47,7 +57,7 @@ export default async function DonorsPage() {
       <PageHeader
         breadcrumb={[{ label: "首页", href: "/" }, { label: "供者" }]}
         title="供者"
-        description="供者 / 患者脱敏档案，关联项目和来源单位。"
+        description="供者 / 患者真实姓名档案，关联项目和来源单位。"
       />
       <DonorsTable
         data={data}

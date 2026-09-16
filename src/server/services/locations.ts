@@ -35,13 +35,16 @@ export function childLevelOf(
   return LEVEL_ORDER[idx + 1];
 }
 
-// Convert a 0-based column index to Excel-style letters (0→A, 25→Z, 26→AA…).
+const ROW_LETTERS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
+
+// Convert a 0-based row index to letters while intentionally skipping I,
+// which can be confused with the number 1 on handwritten freezer-box maps.
 function toColumnLetters(n: number): string {
   let result = "";
   let num = n;
   while (num >= 0) {
-    result = String.fromCharCode(65 + (num % 26)) + result;
-    num = Math.floor(num / 26) - 1;
+    result = ROW_LETTERS[num % ROW_LETTERS.length] + result;
+    num = Math.floor(num / ROW_LETTERS.length) - 1;
   }
   return result;
 }
@@ -66,10 +69,12 @@ export function parseCellLabel(label: string, cols: number): number | null {
   if (!Number.isInteger(colIdxNumber) || colIdxNumber < 1 || colIdxNumber > cols) {
     return null;
   }
-  // Excel-style letter to row index: A=0, Z=25, AA=26, ...
+  // Letter to row index using the same alphabet as cellLabel (I is invalid).
   let row = 0;
   for (let i = 0; i < letters.length; i++) {
-    row = row * 26 + (letters.charCodeAt(i) - 64);
+    const digit = ROW_LETTERS.indexOf(letters[i]);
+    if (digit < 0) return null;
+    row = row * ROW_LETTERS.length + digit + 1;
   }
   row -= 1;
   if (row < 0) return null;

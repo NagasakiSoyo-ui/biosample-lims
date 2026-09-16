@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { SampleTypesTable, type SampleTypeRow } from "./sample-types-table";
+import { redirect } from "next/navigation";
+import { getActor } from "@/server/services/auth-guard";
 
 export const metadata = { title: "样本类型 · BioSample LIMS" };
 
 export default async function SampleTypesPage() {
+  const actor = await getActor();
+  if (actor?.role !== "ADMIN") redirect("/");
   const rows = await prisma.sampleType.findMany({
     orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
   });

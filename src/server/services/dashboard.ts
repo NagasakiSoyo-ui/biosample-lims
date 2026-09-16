@@ -1,12 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import type { SampleStatus, ProjectPurpose } from "@prisma/client";
+import {
+  projectWhere,
+  sampleWhere,
+  type Actor,
+} from "@/server/services/auth-guard";
 
 // ---------------------------------------------------------------------------
 // All queries below favor Prisma groupBy/count/aggregate so they don't pull
 // the full sample table into memory.
 // ---------------------------------------------------------------------------
 
-export async function getDashboardStats() {
+export async function getDashboardStats(actor: Actor) {
   const cutoff30d = new Date();
   cutoff30d.setDate(cutoff30d.getDate() + 30);
   const now = new Date();
@@ -16,21 +21,26 @@ export async function getDashboardStats() {
       prisma.sample.groupBy({
         by: ["status"],
         _count: { _all: true },
+        where: sampleWhere(actor),
       }),
-      prisma.sample.count({ where: { status: { not: "VOIDED" } } }),
+      prisma.sample.count({
+        where: { ...sampleWhere(actor), status: { not: "VOIDED" } },
+      }),
       prisma.project.groupBy({
         by: ["purpose"],
         _count: { _all: true },
-        where: { isActive: true },
+        where: { isActive: true, ...projectWhere(actor) },
       }),
       prisma.sample.count({
         where: {
+          ...sampleWhere(actor),
           expireAt: { gte: now, lte: cutoff30d },
           status: { notIn: ["DISCARDED", "VOIDED", "DEPLETED"] },
         },
       }),
       prisma.sample.count({
         where: {
+          ...sampleWhere(actor),
           freezeThawCount: { gt: 3 },
           status: { notIn: ["DISCARDED", "VOIDED"] },
         },
@@ -76,7 +86,7 @@ export type ProjectStat = {
   }>;
 };
 
-export async function getProjectStats(): Promise<ProjectStat[]> {
+export async function getProjectStats(actor: Actor): Promise<ProjectStat[]> {
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
@@ -84,7 +94,7 @@ export async function getProjectStats(): Promise<ProjectStat[]> {
   const [projects, types, byProjectType, byProjectStatus, byProjectMonth] =
     await Promise.all([
       prisma.project.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...projectWhere(actor) },
         select: { id: true, code: true, name: true, purpose: true },
         orderBy: { code: "asc" },
       }),
@@ -94,15 +104,17 @@ export async function getProjectStats(): Promise<ProjectStat[]> {
       prisma.sample.groupBy({
         by: ["projectId", "typeId"],
         _count: { _all: true },
+        where: sampleWhere(actor),
       }),
       prisma.sample.groupBy({
         by: ["projectId", "status"],
         _count: { _all: true },
+        where: sampleWhere(actor),
       }),
       prisma.sample.groupBy({
         by: ["projectId"],
         _count: { _all: true },
-        where: { createdAt: { gte: monthStart } },
+        where: { ...sampleWhere(actor), createdAt: { gte: monthStart } },
       }),
     ]);
 
@@ -141,7 +153,7 @@ export async function getProjectStats(): Promise<ProjectStat[]> {
     .sort((a, b) => b.totalSamples - a.totalSamples);
 }
 
-export async function getTypeDistribution() {
+export async function getTypeDistribution(actor: Actor) {
   const [types, byType, byStatus] = await Promise.all([
     prisma.sampleType.findMany({
       select: { id: true, name: true, icon: true },
@@ -149,10 +161,12 @@ export async function getTypeDistribution() {
     prisma.sample.groupBy({
       by: ["typeId"],
       _count: { _all: true },
+      where: sampleWhere(actor),
     }),
     prisma.sample.groupBy({
       by: ["status"],
       _count: { _all: true },
+      where: sampleWhere(actor),
     }),
   ]);
   const tById = new Map(types.map((t) => [t.id, t]));
@@ -172,7 +186,8 @@ export async function getTypeDistribution() {
   };
 }
 
-export async function getRecentAudits(limit = 20) {
+export async function getRecentAudits(actor: Actor, limit = 20) {
+  if (actor.role !== "ADMIN") return [];
   return prisma.auditLog.findMany({
     take: limit,
     orderBy: { createdAt: "desc" },

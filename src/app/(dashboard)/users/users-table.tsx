@@ -20,9 +20,16 @@ export type UserRow = {
   role: "ADMIN" | "USER";
   isActive: boolean;
   createdAt: Date;
+  projectIds: string[];
 };
 
-export function UsersTable({ data }: { data: UserRow[] }) {
+export function UsersTable({
+  data,
+  projects,
+}: {
+  data: UserRow[];
+  projects: Array<{ id: string; code: string; name: string }>;
+}) {
   const [formOpen, setFormOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<UserForEdit | null>(null);
   const [resetTarget, setResetTarget] = React.useState<UserRow | null>(null);
@@ -40,6 +47,7 @@ export function UsersTable({ data }: { data: UserRow[] }) {
       email: row.email,
       name: row.name,
       role: row.role,
+      projectIds: row.projectIds,
     });
     setFormOpen(true);
   }
@@ -68,6 +76,24 @@ export function UsersTable({ data }: { data: UserRow[] }) {
           <Badge>管理员</Badge>
         ) : (
           <Badge variant="secondary">普通用户</Badge>
+        ),
+    },
+    {
+      id: "projects",
+      header: "可访问项目",
+      cell: ({ row }) =>
+        row.original.role === "ADMIN" ? (
+          <span className="text-muted-foreground">全部项目</span>
+        ) : row.original.projectIds.length === 0 ? (
+          <span className="text-muted-foreground">未分配</span>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {row.original.projectIds.map((id) => (
+              <Badge key={id} variant="outline">
+                {projects.find((project) => project.id === id)?.code ?? id}
+              </Badge>
+            ))}
+          </div>
         ),
     },
     {
@@ -152,6 +178,7 @@ export function UsersTable({ data }: { data: UserRow[] }) {
         open={formOpen}
         onOpenChange={setFormOpen}
         editing={editing}
+        projects={projects}
       />
       <ResetPasswordDialog
         open={!!resetTarget}

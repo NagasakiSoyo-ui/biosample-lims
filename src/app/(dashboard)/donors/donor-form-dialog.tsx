@@ -38,7 +38,8 @@ import {
 } from "@/server/actions/donors";
 
 const formSchema = z.object({
-  code: z.string().min(1, "脱敏 ID 不能为空"),
+  name: z.string().min(1, "姓名不能为空").max(100, "姓名过长"),
+  code: z.string().min(1, "患者编号不能为空"),
   gender: z.enum(["M", "F", "Unknown", ""]).optional(),
   ageAtCollection: z.string().optional(), // input as string, convert to number
   diagnosis: z.string().optional(),
@@ -52,6 +53,7 @@ type FormValues = z.infer<typeof formSchema>;
 
 export type DonorForEdit = {
   id: string;
+  name: string;
   code: string;
   gender: string | null;
   ageAtCollection: number | null;
@@ -90,6 +92,7 @@ export function DonorFormDialog({
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      name: "",
       code: "",
       gender: "",
       ageAtCollection: "",
@@ -105,6 +108,7 @@ export function DonorFormDialog({
     if (!open) return;
     if (editing) {
       form.reset({
+        name: editing.name,
         code: editing.code,
         gender: (editing.gender as FormValues["gender"]) ?? "",
         ageAtCollection:
@@ -119,6 +123,7 @@ export function DonorFormDialog({
       });
     } else {
       form.reset({
+        name: "",
         code: "",
         gender: "",
         ageAtCollection: "",
@@ -146,6 +151,7 @@ export function DonorFormDialog({
     }
 
     const input: DonorInput = {
+      name: values.name.trim(),
       code: values.code,
       gender: values.gender || "",
       ageAtCollection: age,
@@ -173,7 +179,7 @@ export function DonorFormDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? "编辑供者" : "新增供者"}</DialogTitle>
           <DialogDescription>
-            供者档案脱敏存储；脱敏 ID 全局唯一。
+            供者真实姓名仅在内部服务器显示；患者编号全局唯一。
           </DialogDescription>
         </DialogHeader>
 
@@ -186,12 +192,25 @@ export function DonorFormDialog({
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>姓名 *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="请输入真实姓名" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>脱敏 ID *</FormLabel>
+                    <FormLabel>患者编号 *</FormLabel>
                     <FormControl>
-                      <Input placeholder="如：GBM-P001" {...field} />
+                      <Input placeholder="如：A-01-01" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -3,6 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import type { PickerLocation } from "@/components/shared/location-picker";
 import { SampleForm, type SampleFormValues } from "../../sample-form";
+import {
+  canAccessProject,
+  donorWhere,
+  getActor,
+  projectWhere,
+  sampleWhere,
+} from "@/server/services/auth-guard";
 
 export const metadata = { title: "编辑样本 · BioSample LIMS" };
 
@@ -20,13 +27,15 @@ export default async function EditSamplePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const actor = await getActor();
+  if (!actor) notFound();
   const sample = await prisma.sample.findUnique({ where: { id } });
-  if (!sample) notFound();
+  if (!sample || !canAccessProject(actor, sample.projectId)) notFound();
 
   const [projects, sampleTypes, sourceOrgs, donors, parents, locations, occSamples] =
     await Promise.all([
       prisma.project.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...projectWhere(actor) },
         select: { id: true, code: true, name: true },
         orderBy: { code: "asc" },
       }),
@@ -47,12 +56,13 @@ export default async function EditSamplePage({
         orderBy: { name: "asc" },
       }),
       prisma.donor.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...donorWhere(actor) },
         select: { id: true, code: true, diagnosis: true },
         orderBy: { code: "asc" },
       }),
       prisma.sample.findMany({
         where: {
+          ...sampleWhere(actor),
           id: { not: id },
           status: { notIn: ["DISCARDED", "VOIDED"] },
         },

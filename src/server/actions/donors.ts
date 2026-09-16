@@ -4,12 +4,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getActor } from "@/server/services/auth-guard";
+import { canAccessProject, getActor } from "@/server/services/auth-guard";
 import { buildAuditData } from "@/server/services/audit";
 import type { ActionResult } from "@/types/action";
 
 const donorInputSchema = z.object({
-  code: z.string().min(1, "脱敏 ID 不能为空").max(50, "脱敏 ID 过长"),
+  name: z.string().min(1, "姓名不能为空").max(100, "姓名过长"),
+  code: z.string().min(1, "患者编号不能为空").max(50, "患者编号过长"),
   gender: z.enum(["M", "F", "Unknown"]).optional().or(z.literal("")),
   ageAtCollection: z
     .union([z.number().int().min(0).max(200), z.null()])
@@ -31,6 +32,7 @@ function clean(input: DonorInput) {
     throw new Error("INVALID_DATE");
   }
   return {
+    name: input.name.trim(),
     code: input.code,
     gender: input.gender || null,
     ageAtCollection:
@@ -65,6 +67,9 @@ export async function createDonorAction(
   } catch {
     return { success: false, error: "采集日期格式不正确" };
   }
+  if (!cleaned.projectId || !canAccessProject(actor, cleaned.projectId)) {
+    return { success: false, error: "无权访问所选项目" };
+  }
 
   try {
     const created = await prisma.$transaction(async (tx) => {
@@ -87,7 +92,7 @@ export async function createDonorAction(
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === "P2002"
     ) {
-      return { success: false, error: "脱敏 ID 已存在" };
+      return { success: false, error: "患者编号已存在" };
     }
     if (
       e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -120,11 +125,17 @@ export async function updateDonorAction(
   } catch {
     return { success: false, error: "采集日期格式不正确" };
   }
+  if (!cleaned.projectId || !canAccessProject(actor, cleaned.projectId)) {
+    return { success: false, error: "无权访问所选项目" };
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
       const before = await tx.donor.findUnique({ where: { id } });
       if (!before) throw new Error("NOT_FOUND");
+      if (!before.projectId || !canAccessProject(actor, before.projectId)) {
+        throw new Error("FORBIDDEN");
+      }
       const after = await tx.donor.update({ where: { id }, data: cleaned });
       await tx.auditLog.create({
         data: buildAuditData({
@@ -142,11 +153,14 @@ export async function updateDonorAction(
     if (e instanceof Error && e.message === "NOT_FOUND") {
       return { success: false, error: "供者不存在" };
     }
+    if (e instanceof Error && e.message === "FORBIDDEN") {
+      return { success: false, error: "无权访问该供者" };
+    }
     if (
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === "P2002"
     ) {
-      return { success: false, error: "脱敏 ID 已存在" };
+      return { success: false, error: "患者编号已存在" };
     }
     if (
       e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -168,6 +182,9 @@ export async function toggleDonorActiveAction(
     const result = await prisma.$transaction(async (tx) => {
       const before = await tx.donor.findUnique({ where: { id } });
       if (!before) throw new Error("NOT_FOUND");
+      if (!before.projectId || !canAccessProject(actor, before.projectId)) {
+        throw new Error("FORBIDDEN");
+      }
       const after = await tx.donor.update({
         where: { id },
         data: { isActive: !before.isActive },
@@ -191,6 +208,9 @@ export async function toggleDonorActiveAction(
   } catch (e) {
     if (e instanceof Error && e.message === "NOT_FOUND") {
       return { success: false, error: "供者不存在" };
+    }
+    if (e instanceof Error && e.message === "FORBIDDEN") {
+      return { success: false, error: "无权访问该供者" };
     }
     return { success: false, error: "状态切换失败，请重试" };
   }

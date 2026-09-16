@@ -41,11 +41,11 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "仪表盘", icon: LayoutDashboard },
   { href: "/samples", label: "样本", icon: TestTubes },
   { href: "/projects", label: "项目", icon: FolderKanban },
-  { href: "/sample-types", label: "样本类型", icon: Tags },
-  { href: "/source-orgs", label: "来源单位", icon: Building2 },
+  { href: "/sample-types", label: "样本类型", icon: Tags, adminOnly: true },
+  { href: "/source-orgs", label: "来源单位", icon: Building2, adminOnly: true },
   { href: "/locations", label: "存储位置", icon: Boxes },
   { href: "/donors", label: "供者", icon: Users },
-  { href: "/audit-logs", label: "操作日志", icon: ScrollText },
+  { href: "/audit-logs", label: "操作日志", icon: ScrollText, adminOnly: true },
   { href: "/users", label: "用户管理", icon: UserCog, adminOnly: true },
 ];
 

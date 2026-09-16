@@ -2,14 +2,23 @@ import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import type { PickerLocation } from "@/components/shared/location-picker";
 import { SampleForm } from "../sample-form";
+import { redirect } from "next/navigation";
+import {
+  donorWhere,
+  getActor,
+  projectWhere,
+  sampleWhere,
+} from "@/server/services/auth-guard";
 
 export const metadata = { title: "登记样本 · BioSample LIMS" };
 
 export default async function NewSamplePage() {
+  const actor = await getActor();
+  if (!actor) redirect("/login");
   const [projects, sampleTypes, sourceOrgs, donors, allSamples, locations, samples] =
     await Promise.all([
       prisma.project.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...projectWhere(actor) },
         select: { id: true, code: true, name: true },
         orderBy: { code: "asc" },
       }),
@@ -30,13 +39,16 @@ export default async function NewSamplePage() {
         orderBy: { name: "asc" },
       }),
       prisma.donor.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...donorWhere(actor) },
         select: { id: true, code: true, diagnosis: true },
         orderBy: { code: "asc" },
       }),
       // parent sample candidates: not discarded/voided/depleted, capped at 200 most recent
       prisma.sample.findMany({
-        where: { status: { notIn: ["DISCARDED", "VOIDED"] } },
+        where: {
+          ...sampleWhere(actor),
+          status: { notIn: ["DISCARDED", "VOIDED"] },
+        },
         select: {
           id: true,
           sampleCode: true,

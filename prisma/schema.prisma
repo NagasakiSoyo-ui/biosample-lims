@@ -88,6 +88,7 @@ model User {
   createdSamples Sample[]            @relation("SampleCreatedBy")
   transactions   SampleTransaction[] @relation("TransactionOperator")
   auditLogs      AuditLog[]
+  projectAccess  UserProjectAccess[]
 
   @@index([isActive])
 }
@@ -127,8 +128,24 @@ model Project {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  samples Sample[]
-  donors  Donor[]
+  samples    Sample[]
+  donors     Donor[]
+  userAccess UserProjectAccess[]
+}
+
+// Explicit project grants for ordinary users. ADMIN users bypass this table.
+// A USER with no rows has no project data access (secure by default).
+model UserProjectAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+  @@index([projectId])
 }
 
 // ============================================================================
@@ -154,12 +171,13 @@ model SourceOrg {
 }
 
 // ============================================================================
-// Donor — anonymized donor / patient
+// Donor — donor / patient identity
 // ============================================================================
 
 model Donor {
   id              String    @id @default(cuid())
-  code            String    @unique // 脱敏 ID，e.g. "GBM-P001"
+  name            String // 真实姓名；内部服务器使用
+  code            String    @unique // 患者编号，e.g. "A-01-01"
   gender          String? // "M" / "F" / "Unknown"
   ageAtCollection Int?
   diagnosis       String? // 诊断
@@ -176,6 +194,7 @@ model Donor {
   samples   Sample[]
 
   @@index([isActive])
+  @@index([name])
 }
 
 // ============================================================================

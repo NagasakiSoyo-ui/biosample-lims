@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/components/shared/page-header";
 import { SourceOrgsTable, type SourceOrgRow } from "./source-orgs-table";
+import { redirect } from "next/navigation";
+import { getActor } from "@/server/services/auth-guard";
 
 export const metadata = { title: "来源单位 · BioSample LIMS" };
 
 export default async function SourceOrgsPage() {
+  const actor = await getActor();
+  if (actor?.role !== "ADMIN") redirect("/");
   const rows = await prisma.sourceOrg.findMany({
     orderBy: [{ isActive: "desc" }, { createdAt: "asc" }],
     include: { _count: { select: { samples: true } } },

@@ -33,12 +33,13 @@ export type ProjectRow = {
   createdAt: Date;
 };
 
-const PURPOSE_LABEL: Record<ProjectRow["purpose"], string> = {
-  RESEARCH: "研究",
-  CLINICAL_INFUSION: "临床回输",
-};
-
-export function ProjectsTable({ data }: { data: ProjectRow[] }) {
+export function ProjectsTable({
+  data,
+  canManage,
+}: {
+  data: ProjectRow[];
+  canManage: boolean;
+}) {
   const [purposeFilter, setPurposeFilter] = React.useState<
     "ALL" | ProjectRow["purpose"]
   >("ALL");
@@ -131,7 +132,7 @@ export function ProjectsTable({ data }: { data: ProjectRow[] }) {
         </span>
       ),
     },
-    {
+    ...(canManage ? [{
       id: "actions",
       header: "操作",
       enableSorting: false,
@@ -164,7 +165,7 @@ export function ProjectsTable({ data }: { data: ProjectRow[] }) {
           </Button>
         </div>
       ),
-    },
+    } satisfies ColumnDef<ProjectRow, unknown>] : []),
   ];
 
   return (
@@ -193,20 +194,24 @@ export function ProjectsTable({ data }: { data: ProjectRow[] }) {
                 <SelectItem value="CLINICAL_INFUSION">临床回输</SelectItem>
               </SelectContent>
             </Select>
-            <Button size="sm" className="ml-auto" onClick={openCreate}>
-              <Plus className="mr-1 h-4 w-4" />
-              新增项目
-            </Button>
+            {canManage && (
+              <Button size="sm" className="ml-auto" onClick={openCreate}>
+                <Plus className="mr-1 h-4 w-4" />
+                新增项目
+              </Button>
+            )}
           </>
         }
         emptyMessage="暂无项目"
       />
 
-      <ProjectFormDialog
-        open={formOpen}
-        onOpenChange={setFormOpen}
-        editing={editing}
-      />
+      {canManage && (
+        <ProjectFormDialog
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          editing={editing}
+        />
+      )}
 
       <ConfirmDialog
         open={!!confirm}

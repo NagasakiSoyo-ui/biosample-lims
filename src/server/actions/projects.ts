@@ -29,6 +29,7 @@ export async function createProjectAction(
 ): Promise<ActionResult<{ id: string }>> {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   const parsed = projectInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -79,6 +80,7 @@ export async function updateProjectAction(
 ): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   const parsed = projectInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -134,6 +136,7 @@ export async function toggleProjectActiveAction(
 ): Promise<ActionResult<{ isActive: boolean }>> {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   try {
     const result = await prisma.$transaction(async (tx) => {

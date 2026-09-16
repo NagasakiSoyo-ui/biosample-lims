@@ -3,14 +3,23 @@ import { PageHeader } from "@/components/shared/page-header";
 import { getLocationPath } from "@/server/services/locations";
 import type { PickerLocation } from "@/components/shared/location-picker";
 import { BatchWizard } from "./batch-wizard";
+import { redirect } from "next/navigation";
+import {
+  getActor,
+  projectWhere,
+  sampleWhere,
+} from "@/server/services/auth-guard";
 
 export const metadata = { title: "批量分装 · BioSample LIMS" };
 
 export default async function BatchPage() {
+  const actor = await getActor();
+  if (!actor) redirect("/login");
   const [parentRows, projects, sampleTypes, locations, occSamples] =
     await Promise.all([
       prisma.sample.findMany({
         where: {
+          ...sampleWhere(actor),
           status: { notIn: ["DISCARDED", "VOIDED", "DEPLETED"] },
         },
         include: {
@@ -21,7 +30,7 @@ export default async function BatchPage() {
         take: 200,
       }),
       prisma.project.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...projectWhere(actor) },
         select: { id: true, code: true, name: true },
         orderBy: { code: "asc" },
       }),

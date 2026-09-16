@@ -152,13 +152,15 @@ export type LineageNode = {
 async function findRoot(
   client: Prisma.TransactionClient,
   startId: string,
+  projectId: string,
 ): Promise<string> {
   let id = startId;
   for (let i = 0; i < 32; i++) {
     const row = await client.sample.findUnique({
       where: { id },
-      select: { parentSampleId: true },
+      select: { parentSampleId: true, projectId: true },
     });
+    if (!row || row.projectId !== projectId) return startId;
     if (!row?.parentSampleId) return id;
     id = row.parentSampleId;
   }
@@ -168,6 +170,7 @@ async function findRoot(
 async function buildSubtree(
   client: Prisma.TransactionClient,
   id: string,
+  projectId: string,
 ): Promise<LineageNode | null> {
   const row = await client.sample.findUnique({
     where: { id },
@@ -176,18 +179,19 @@ async function buildSubtree(
       sampleCode: true,
       status: true,
       parentSampleId: true,
+      projectId: true,
       type: { select: { name: true, icon: true } },
     },
   });
-  if (!row) return null;
+  if (!row || row.projectId !== projectId) return null;
   const childIds = await client.sample.findMany({
-    where: { parentSampleId: id },
+    where: { parentSampleId: id, projectId },
     select: { id: true },
     orderBy: { createdAt: "asc" },
   });
   const children: LineageNode[] = [];
   for (const c of childIds) {
-    const sub = await buildSubtree(client, c.id);
+    const sub = await buildSubtree(client, c.id, projectId);
     if (sub) children.push(sub);
   }
   return {
@@ -204,9 +208,10 @@ async function buildSubtree(
 export async function getSampleLineage(
   client: Prisma.TransactionClient,
   sampleId: string,
+  projectId: string,
 ): Promise<{ root: LineageNode | null; currentId: string }> {
-  const rootId = await findRoot(client, sampleId);
-  const root = await buildSubtree(client, rootId);
+  const rootId = await findRoot(client, sampleId, projectId);
+  const root = await buildSubtree(client, rootId, projectId);
   return { root, currentId: sampleId };
 }
 

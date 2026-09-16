@@ -14,6 +14,7 @@ import {
 } from "./sample-detail-tabs";
 import type { TimelineRow } from "./transactions-timeline";
 import type { AuditRow } from "./audit-table";
+import { getActor, canAccessProject } from "@/server/services/auth-guard";
 
 export const metadata = { title: "样本详情 · BioSample LIMS" };
 
@@ -23,6 +24,8 @@ export default async function SampleDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const actor = await getActor();
+  if (!actor) notFound();
 
   const sample = await prisma.sample.findUnique({
     where: { id },
@@ -30,12 +33,12 @@ export default async function SampleDetailPage({
       type: { select: { name: true, icon: true, customFieldsSchema: true } },
       project: { select: { code: true, name: true } },
       sourceOrg: { select: { name: true } },
-      donor: { select: { code: true } },
+      donor: { select: { name: true, code: true } },
       createdBy: { select: { name: true } },
     },
   });
 
-  if (!sample) notFound();
+  if (!sample || !canAccessProject(actor, sample.projectId)) notFound();
 
   const [
     locationPath,
@@ -48,7 +51,9 @@ export default async function SampleDetailPage({
     sample.locationId
       ? getLocationPath(prisma, sample.locationId)
       : Promise.resolve(""),
-    prisma.$transaction(async (tx) => getSampleLineage(tx, id)),
+    prisma.$transaction(async (tx) =>
+      getSampleLineage(tx, id, sample.projectId),
+    ),
     prisma.sampleTransaction.findMany({
       where: { sampleId: id },
       orderBy: { createdAt: "desc" },
@@ -150,7 +155,7 @@ export default async function SampleDetailPage({
     projectName: sample.project.name,
     projectCode: sample.project.code,
     sourceOrgName: sample.sourceOrg?.name ?? null,
-    donorCode: sample.donor?.code ?? null,
+    donorCode: sample.donor?.name ?? sample.donor?.code ?? null,
     createdByName: sample.createdBy.name,
     createdAt: sample.createdAt,
     updatedAt: sample.updatedAt,

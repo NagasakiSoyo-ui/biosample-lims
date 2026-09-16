@@ -30,6 +30,7 @@ export async function createLocationAction(
 ): Promise<ActionResult<{ id: string; level: LocationLevel }>> {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   const parsed = locationInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -139,6 +140,7 @@ export async function updateLocationAction(
 ): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   const parsed = updateInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -202,6 +204,7 @@ export async function toggleLocationActiveAction(
 ): Promise<ActionResult<{ isActive: boolean }>> {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -246,6 +249,7 @@ export async function getOrCreateSlotAction(
 > {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   if (!Number.isInteger(position) || position < 0) {
     return { success: false, error: "位置参数无效" };
@@ -287,6 +291,7 @@ export async function deleteLocationAction(
 ): Promise<ActionResult> {
   const actor = await getActor();
   if (!actor) return { success: false, error: "未登录" };
+  if (actor.role !== "ADMIN") return { success: false, error: "无权限" };
 
   const before = await prisma.location.findUnique({
     where: { id },

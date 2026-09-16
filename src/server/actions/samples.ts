@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getActor } from "@/server/services/auth-guard";
+import { canAccessProject, getActor } from "@/server/services/auth-guard";
 import { buildAuditData } from "@/server/services/audit";
 import { isSlotOccupied } from "@/server/services/locations";
 import {
@@ -93,6 +93,9 @@ export async function generateSampleCodeAction(
   if (!projectId || !typeId) {
     return { success: false, error: "请先选择项目和样本类型" };
   }
+  if (!canAccessProject(actor, projectId)) {
+    return { success: false, error: "无权访问该项目" };
+  }
 
   const code = await prisma.$transaction(async (tx) =>
     generateSampleCode(tx, { projectId, typeId }),
@@ -119,12 +122,34 @@ export async function createSampleAction(
     };
   }
   const data = parsed.data;
+  if (!canAccessProject(actor, data.projectId)) {
+    return { success: false, error: "无权访问该项目" };
+  }
 
   try {
     const created = await prisma.$transaction(async (tx) => {
       const typeInfo = await loadTypeSchema(tx, data.typeId);
       if (!typeInfo) throw new Error("TYPE_NOT_FOUND");
       if (!typeInfo.isActive) throw new Error("TYPE_DISABLED");
+
+      if (data.donorId) {
+        const donor = await tx.donor.findUnique({
+          where: { id: data.donorId },
+          select: { projectId: true },
+        });
+        if (!donor || donor.projectId !== data.projectId) {
+          throw new Error("DONOR_PROJECT_MISMATCH");
+        }
+      }
+      if (data.parentSampleId) {
+        const parent = await tx.sample.findUnique({
+          where: { id: data.parentSampleId },
+          select: { projectId: true },
+        });
+        if (!parent || parent.projectId !== data.projectId) {
+          throw new Error("PARENT_PROJECT_MISMATCH");
+        }
+      }
 
       const customFieldErr = validateCustomFields(
         typeInfo.schema,
@@ -219,6 +244,12 @@ function mapCreateError(e: unknown): { success: false; error: string } {
       return { success: false, error: "样本编号在该项目下已存在" };
     if (e.message === "SLOT_OCCUPIED")
       return { success: false, error: "该位置已被其他样本占用" };
+    if (e.message === "FORBIDDEN")
+      return { success: false, error: "无权访问该样本或项目" };
+    if (e.message === "DONOR_PROJECT_MISMATCH")
+      return { success: false, error: "所选患者不属于该项目" };
+    if (e.message === "PARENT_PROJECT_MISMATCH")
+      return { success: false, error: "母样本不属于该项目" };
     if (e.message.startsWith("CUSTOM:"))
       return { success: false, error: e.message.slice(7) };
   }
@@ -256,14 +287,30 @@ export async function updateSampleAction(
     };
   }
   const data = parsed.data;
+  if (!canAccessProject(actor, data.projectId)) {
+    return { success: false, error: "无权访问该项目" };
+  }
 
   try {
     await prisma.$transaction(async (tx) => {
       const before = await tx.sample.findUnique({ where: { id } });
       if (!before) throw new Error("NOT_FOUND");
+      if (!canAccessProject(actor, before.projectId)) {
+        throw new Error("FORBIDDEN");
+      }
 
       const typeInfo = await loadTypeSchema(tx, data.typeId);
       if (!typeInfo) throw new Error("TYPE_NOT_FOUND");
+
+      if (data.donorId) {
+        const donor = await tx.donor.findUnique({
+          where: { id: data.donorId },
+          select: { projectId: true },
+        });
+        if (!donor || donor.projectId !== data.projectId) {
+          throw new Error("DONOR_PROJECT_MISMATCH");
+        }
+      }
 
       const customFieldErr = validateCustomFields(
         typeInfo.schema,
@@ -381,6 +428,9 @@ export async function batchCreateSamplesAction(
     };
   }
   const data = parsed.data;
+  if (!canAccessProject(actor, data.shared.projectId)) {
+    return { success: false, error: "无权访问该项目" };
+  }
 
   if (data.slotIds.length !== data.count) {
     return {
@@ -409,6 +459,12 @@ export async function batchCreateSamplesAction(
         where: { id: data.parentSampleId },
       });
       if (!parent) throw new Error("PARENT_NOT_FOUND");
+      if (
+        !canAccessProject(actor, parent.projectId) ||
+        parent.projectId !== data.shared.projectId
+      ) {
+        throw new Error("FORBIDDEN");
+      }
 
       const typeInfo = await loadTypeSchema(tx, data.shared.typeId);
       if (!typeInfo) throw new Error("TYPE_NOT_FOUND");
@@ -502,6 +558,8 @@ export async function batchCreateSamplesAction(
         return { success: false, error: "母样本不存在" };
       if (e.message === "TYPE_NOT_FOUND")
         return { success: false, error: "样本类型不存在" };
+      if (e.message === "FORBIDDEN")
+        return { success: false, error: "无权访问母样本或目标项目" };
       if (e.message.startsWith("SLOT_OCCUPIED:"))
         return { success: false, error: "其中一个位置已被占用，请重新选择" };
     }
@@ -550,6 +608,9 @@ export async function outboundSampleAction(
     await prisma.$transaction(async (tx) => {
       const before = await tx.sample.findUnique({ where: { id } });
       if (!before) throw new Error("NOT_FOUND");
+      if (!canAccessProject(actor, before.projectId)) {
+        throw new Error("FORBIDDEN");
+      }
 
       const releasingLocation =
         parsed.data.newStatus === "DEPLETED" ||
@@ -600,6 +661,9 @@ export async function outboundSampleAction(
     if (e instanceof Error && e.message === "NOT_FOUND") {
       return { success: false, error: "样本不存在" };
     }
+    if (e instanceof Error && e.message === "FORBIDDEN") {
+      return { success: false, error: "无权访问该样本" };
+    }
     return { success: false, error: "出库失败，请重试" };
   }
 }
@@ -634,6 +698,9 @@ export async function transferSampleAction(
     await prisma.$transaction(async (tx) => {
       const before = await tx.sample.findUnique({ where: { id } });
       if (!before) throw new Error("NOT_FOUND");
+      if (!canAccessProject(actor, before.projectId)) {
+        throw new Error("FORBIDDEN");
+      }
 
       if (before.locationId === parsed.data.toLocationId) {
         throw new Error("SAME_LOCATION");
@@ -679,6 +746,8 @@ export async function transferSampleAction(
     if (e instanceof Error) {
       if (e.message === "NOT_FOUND")
         return { success: false, error: "样本不存在" };
+      if (e.message === "FORBIDDEN")
+        return { success: false, error: "无权访问该样本" };
       if (e.message === "SAME_LOCATION")
         return { success: false, error: "目标位置与当前位置相同" };
       if (e.message === "SLOT_OCCUPIED")
@@ -717,6 +786,9 @@ export async function freezeThawSampleAction(
     const newCount = await prisma.$transaction(async (tx) => {
       const before = await tx.sample.findUnique({ where: { id } });
       if (!before) throw new Error("NOT_FOUND");
+      if (!canAccessProject(actor, before.projectId)) {
+        throw new Error("FORBIDDEN");
+      }
 
       const after = await tx.sample.update({
         where: { id },
@@ -758,6 +830,9 @@ export async function freezeThawSampleAction(
     if (e instanceof Error && e.message === "NOT_FOUND") {
       return { success: false, error: "样本不存在" };
     }
+    if (e instanceof Error && e.message === "FORBIDDEN") {
+      return { success: false, error: "无权访问该样本" };
+    }
     return { success: false, error: "冻融记录失败，请重试" };
   }
 }
@@ -791,6 +866,9 @@ export async function discardSampleAction(
     await prisma.$transaction(async (tx) => {
       const before = await tx.sample.findUnique({ where: { id } });
       if (!before) throw new Error("NOT_FOUND");
+      if (!canAccessProject(actor, before.projectId)) {
+        throw new Error("FORBIDDEN");
+      }
 
       const after = await tx.sample.update({
         where: { id },
@@ -827,6 +905,9 @@ export async function discardSampleAction(
   } catch (e) {
     if (e instanceof Error && e.message === "NOT_FOUND") {
       return { success: false, error: "样本不存在" };
+    }
+    if (e instanceof Error && e.message === "FORBIDDEN") {
+      return { success: false, error: "无权访问该样本" };
     }
     return { success: false, error: "销毁失败，请重试" };
   }
